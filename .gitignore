@@ -1,0 +1,144 @@
+# =============================================================================
+# Flipkart Reviews - .gitignore
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Python / Backend
+# -----------------------------------------------------------------------------
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.env.local
+
+# Distribution / packaging
+*.egg
+*.egg-info/
+dist/
+build/
+*.whl
+*.tar.gz
+MANIFEST
+
+# Unit test / coverage
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.tox/
+nosetests.xml
+coverage.xml
+*.cover
+
+# MyPy / type checkers
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+
+# Celery / task queues
+celerybeat-schedule
+celerybeat.pid
+
+# Logs
+*.log
+logs/
+
+# Database files
+*.db
+*.sqlite3
+
+# -----------------------------------------------------------------------------
+# Environment & Secrets  (NEVER commit these)
+# -----------------------------------------------------------------------------
+.env
+*.env
+.env.*
+!.env.example
+!backend/.env.example
+
+# -----------------------------------------------------------------------------
+# Node / Frontend
+# -----------------------------------------------------------------------------
+
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# npm / yarn / pnpm debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Vite cache
+.vite/
+
+# -----------------------------------------------------------------------------
+# IDEs & Editors
+# -----------------------------------------------------------------------------
+
+# VS Code
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# JetBrains (PyCharm, WebStorm, etc.)
+.idea/
+*.iml
+
+# Vim / Emacs
+*.sw?
+*~
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# -----------------------------------------------------------------------------
+# OS Generated Files
+# -----------------------------------------------------------------------------
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+*~
+
+# -----------------------------------------------------------------------------
+# Miscellaneous
+# -----------------------------------------------------------------------------
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+
+# Jupyter Notebooks checkpoints
+.ipynb_checkpoints/
+
+# Model weights / large binary files (uncomment if storing ML models locally)
+# *.pkl
+# *.pt
+# *.pth
+# *.h5
+# *.onnx
