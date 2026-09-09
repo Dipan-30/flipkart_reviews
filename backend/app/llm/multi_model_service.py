@@ -133,6 +133,7 @@ class MultiModelAnalysisService:
         skip_unavailable: bool = True,
         review_id: Optional[str] = None,
         db: Optional[object] = None,
+        perf_stats: Optional[dict] = None,
     ) -> MultiModelAnalysis:
         """
         Send the identical review to every configured model.
@@ -143,6 +144,19 @@ class MultiModelAnalysisService:
         if not self.services:
             return MultiModelAnalysis()
 
+        cached_by_model: dict[str, dict] = {}
+        if db is not None and review_id:
+            try:
+                cursor = db.model_analysis_results.find(
+                    {"review_id": review_id, "status": "completed"}
+                )
+                async for doc in cursor:
+                    name = doc.get("model_name")
+                    if name:
+                        cached_by_model[name] = doc
+            except Exception as exc:
+                logger.warning(f"Batch cache lookup failed for review {review_id}: {exc}")
+
         tasks = [
             self._analyze_with_model(
                 service=service,
@@ -151,8 +165,8 @@ class MultiModelAnalysisService:
                 product_price=product_price,
                 summary=summary,
                 skip_unavailable=skip_unavailable,
-                review_id=review_id,
-                db=db,
+                cached_doc=cached_by_model.get(getattr(service, "model", "unknown")),
+                perf_stats=perf_stats,
             )
             for service in self.services
         ]
@@ -191,8 +205,8 @@ class MultiModelAnalysisService:
         product_price: Optional[str],
         summary: Optional[str],
         skip_unavailable: bool,
-        review_id: Optional[str] = None,
-        db: Optional[object] = None,
+        cached_doc: Optional[dict] = None,
+        perf_stats: Optional[dict] = None,
     ) -> ModelAnalysisResult:
         """Analyze with one model, converting any failure into a result row."""
         model_name = getattr(service, "model", "unknown")
@@ -205,33 +219,31 @@ class MultiModelAnalysisService:
                 status="unavailable",
             )
 
-        # Check if already successfully analyzed for (review_id, model_name)
-        if db is not None and review_id:
-            try:
-                existing = await db.model_analysis_results.find_one(
-                    {"review_id": review_id, "model_name": model_name, "status": "completed"}
-                )
-                if existing:
-                    logger.info(f"[{model_name}] Reusing cached result for review {review_id}")
-                    from app.schemas.llm import AspectSentiment, LLMAnalysisResult
-                    aspects = [AspectSentiment(**a) if isinstance(a, dict) else a for a in existing.get("aspects", [])]
-                    res = LLMAnalysisResult(
-                        sentiment=existing.get("sentiment", "neutral"),
-                        ai_sentiment_score=existing.get("ai_sentiment_score", 3.0),
-                        reason=existing.get("reason", ""),
-                        aspects=aspects,
-                        positive_points=existing.get("positive_points", []),
-                        negative_points=existing.get("negative_points", []),
-                        keywords=existing.get("keywords", []),
-                    )
-                    return ModelAnalysisResult.from_success(
-                        model_name=model_name,
-                        result=res,
-                        processing_time_ms=existing.get("processing_time_ms", 0),
-                        attempts=existing.get("attempts", 1),
-                    )
-            except Exception as exc:
-                logger.warning(f"[{model_name}] Cache lookup failed for review {review_id}: {exc}")
+        if cached_doc:
+            logger.info(f"[{model_name}] Reusing cached result")
+            from app.schemas.llm import AspectSentiment, LLMAnalysisResult
+
+            aspects = [
+                AspectSentiment(**a) if isinstance(a, dict) else a
+                for a in cached_doc.get("aspects", [])
+            ]
+            res = LLMAnalysisResult(
+                sentiment=cached_doc.get("sentiment", "neutral"),
+                ai_sentiment_score=cached_doc.get("ai_sentiment_score", 3.0),
+                reason=cached_doc.get("reason", ""),
+                aspects=aspects,
+                positive_points=cached_doc.get("positive_points", []),
+                negative_points=cached_doc.get("negative_points", []),
+                keywords=cached_doc.get("keywords", []),
+            )
+            if perf_stats is not None:
+                perf_stats["cached"] = perf_stats.get("cached", 0) + 1
+            return ModelAnalysisResult.from_success(
+                model_name=model_name,
+                result=res,
+                processing_time_ms=cached_doc.get("processing_time_ms", 0),
+                attempts=cached_doc.get("attempts", 1),
+            )
 
         started = time.time()
         async with self._semaphore:
@@ -242,6 +254,14 @@ class MultiModelAnalysisService:
                     product_price=product_price,
                     summary=summary,
                 )
+                if perf_stats is not None:
+                    perf_stats["llm_calls"] = perf_stats.get("llm_calls", 0) + 1
+                    elapsed = meta.get("elapsed_ms")
+                    if elapsed is not None:
+                        perf_stats.setdefault("llm_latencies_ms", []).append(elapsed)
+                    attempts = meta.get("attempts", 1) or 1
+                    if attempts > 1:
+                        perf_stats["retries"] = perf_stats.get("retries", 0) + (attempts - 1)
                 return ModelAnalysisResult.from_success(
                     model_name=model_name,
                     result=result,

@@ -53,7 +53,20 @@ class OllamaLLMService(LLMService):
         self.model = model or settings.primary_model
         self.timeout = timeout or settings.ollama_timeout
         self.force_json = settings.ollama_force_json if force_json is None else force_json
+        self._client: Optional[httpx.AsyncClient] = None
         logger.info(f"OllamaLLMService initialized | model={self.model} | url={self.base_url}")
+
+    def _get_client(self) -> httpx.AsyncClient:
+        """Reuse one async HTTP client for the lifetime of this service instance."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(timeout=self.timeout)
+        return self._client
+
+    async def close(self) -> None:
+        """Close the reusable HTTP client (call at job shutdown)."""
+        if self._client is not None and not self._client.is_closed:
+            await self._client.aclose()
+        self._client = None
 
     # ------------------------------------------------------------------ #
     # Analysis
@@ -149,7 +162,7 @@ class OllamaLLMService(LLMService):
             "options": {
                 "temperature": 0.1,   # Low temperature for consistent structured output
                 "top_p": 0.9,
-                "num_predict": 300,   # Capped output token limit for faster inference
+                "num_predict": 150,   # Sufficient for compact JSON with all required fields
             },
         }
         want_json = self.force_json if force_json is None else force_json
@@ -158,11 +171,11 @@ class OllamaLLMService(LLMService):
             # failures, especially for models other than gemma3.
             payload["format"] = "json"
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(url, json=payload)
-                response.raise_for_status()
-                data = response.json()
-                return data.get("response", "")
+            client = self._get_client()
+            response = await client.post(url, json=payload)
+            response.raise_for_status()
+            data = response.json()
+            return data.get("response", "")
         except httpx.TimeoutException:
             logger.error(f"[{self.model}] Ollama request timed out after {self.timeout}s")
             raise LLMTimeoutError(
@@ -206,20 +219,20 @@ class OllamaLLMService(LLMService):
     async def check_availability(self) -> bool:
         """Check if Ollama is running and reachable."""
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.get(f"{self.base_url}/api/tags")
-                return response.status_code == 200
+            client = self._get_client()
+            response = await client.get(f"{self.base_url}/api/tags", timeout=5.0)
+            return response.status_code == 200
         except Exception:
             return False
 
     async def list_models(self) -> list[str]:
         """List installed Ollama models."""
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(f"{self.base_url}/api/tags")
-                response.raise_for_status()
-                data = response.json()
-                return [m["name"] for m in data.get("models", [])]
+            client = self._get_client()
+            response = await client.get(f"{self.base_url}/api/tags", timeout=10.0)
+            response.raise_for_status()
+            data = response.json()
+            return [m["name"] for m in data.get("models", [])]
         except Exception as e:
             logger.error(f"Failed to list Ollama models: {e}")
             return []
@@ -284,6 +297,13 @@ def get_model_services() -> list[OllamaLLMService]:
     """Return one service instance per configured model, in configured order."""
     settings = get_settings()
     return [get_llm_service(m) for m in settings.llm_models]  # type: ignore[misc]
+
+
+async def close_all_services() -> None:
+    """Close HTTP clients and drop cached service instances."""
+    for service in _services.values():
+        await service.close()
+    _services.clear()
 
 
 def reset_service_registry() -> None:

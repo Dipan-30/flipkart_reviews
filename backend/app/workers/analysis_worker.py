@@ -19,13 +19,16 @@ models are recorded with their error type so the UI can show
 """
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 
 from bson import ObjectId
+from pymongo import UpdateOne
 
 from app.config import get_settings
 from app.database.connection import get_db
 from app.llm.multi_model_service import MultiModelAnalysisService
+from app.llm.ollama_service import close_all_services
 from app.schemas.llm import MultiModelAnalysis
 
 logger = logging.getLogger(__name__)
@@ -43,6 +46,15 @@ async def run_analysis_job(job_id: str, dataset_id: str, user_id: str) -> None:
     # installed right now.
     multi = MultiModelAnalysisService()
     semaphore = asyncio.Semaphore(max(1, settings.ollama_concurrency))
+    job_start = time.time()
+    perf_stats: dict = {
+        "llm_calls": 0,
+        "cached": 0,
+        "retries": 0,
+        "llm_latencies_ms": [],
+        "successful_reviews": 0,
+        "failed_reviews": 0,
+    }
 
     logger.info(
         f"[Job {job_id}] Starting analysis | dataset={dataset_id} | "
@@ -91,6 +103,7 @@ async def run_analysis_job(job_id: str, dataset_id: str, user_id: str) -> None:
         )
         reviews = await cursor.to_list(length=None)
 
+        perf_stats["total_reviews"] = len(reviews)
         logger.info(f"[Job {job_id}] Found {len(reviews)} reviews to process.")
 
         if not reviews:
@@ -99,16 +112,20 @@ async def run_analysis_job(job_id: str, dataset_id: str, user_id: str) -> None:
             return
 
         tasks = [
-            _process_single_review(db, multi, semaphore, job_id, dataset_id, user_id, review)
+            _process_single_review(
+                db, multi, semaphore, job_id, dataset_id, user_id, review, perf_stats
+            )
             for review in reviews
         ]
         await asyncio.gather(*tasks, return_exceptions=True)
 
         await _mark_job_complete(db, job_id, dataset_id)
+        _log_perf_summary(job_id, perf_stats, job_start)
         logger.info(f"[Job {job_id}] Analysis complete.")
 
     except Exception as e:
         logger.error(f"[Job {job_id}] Fatal error: {e}", exc_info=True)
+        _log_perf_summary(job_id, perf_stats, job_start)
         await db.analysis_jobs.update_one(
             {"_id": ObjectId(job_id)},
             {
@@ -119,6 +136,8 @@ async def run_analysis_job(job_id: str, dataset_id: str, user_id: str) -> None:
                 }
             },
         )
+    finally:
+        await close_all_services()
 
 
 async def _process_single_review(
@@ -129,6 +148,7 @@ async def _process_single_review(
     dataset_id: str,
     user_id: str,
     review: dict,
+    perf_stats: dict,
 ) -> None:
     """Run every model on one review and persist per-model + consensus results."""
     review_id = str(review["_id"])
@@ -154,22 +174,23 @@ async def _process_single_review(
             analysis: MultiModelAnalysis = await multi.analyze_review(
                 review=review.get("review", ""),
                 product_name=review.get("product_name"),
-                product_price=review.get("product_price"),
-                summary=review.get("summary"),
                 review_id=review_id,
                 db=db,
+                perf_stats=perf_stats,
             )
 
             await _store_model_results(db, dataset_id, user_id, review, analysis, now)
 
             if analysis.success_count == 0:
                 # Every model failed -> the review itself failed.
+                perf_stats["failed_reviews"] = perf_stats.get("failed_reviews", 0) + 1
                 error_msg = _first_error(analysis) or "All configured models failed."
                 await _record_review_failure(
                     db, job_id, dataset_id, review, review_id, analysis, error_msg, now
                 )
                 return
 
+            perf_stats["successful_reviews"] = perf_stats.get("successful_reviews", 0) + 1
             await _store_consensus(db, dataset_id, review_id, review, analysis, now)
 
             partial = analysis.failure_count > 0
@@ -211,6 +232,7 @@ async def _process_single_review(
         except asyncio.CancelledError:
             raise
         except Exception as e:
+            perf_stats["failed_reviews"] = perf_stats.get("failed_reviews", 0) + 1
             error_msg = str(e)[:500]
             logger.error(f"[Job {job_id}] ✗ Review {review_id} failed: {error_msg}", exc_info=True)
             await _record_review_failure(
@@ -231,6 +253,7 @@ async def _store_model_results(
 ) -> None:
     """Upsert one document per (review, model) — no result is ever overwritten by another model."""
     review_id = str(review["_id"])
+    ops: list[UpdateOne] = []
     for result in analysis.model_results:
         doc = {
             "review_id": review_id,
@@ -252,11 +275,15 @@ async def _store_model_results(
             "error_message": result.error_message,
             "updated_at": now,
         }
-        await db.model_analysis_results.update_one(
-            {"review_id": review_id, "model_name": result.model_name},
-            {"$set": doc, "$setOnInsert": {"created_at": now}},
-            upsert=True,
+        ops.append(
+            UpdateOne(
+                {"review_id": review_id, "model_name": result.model_name},
+                {"$set": doc, "$setOnInsert": {"created_at": now}},
+                upsert=True,
+            )
         )
+    if ops:
+        await db.model_analysis_results.bulk_write(ops, ordered=False)
 
 
 async def _store_consensus(
@@ -418,6 +445,30 @@ def _first_error(analysis: MultiModelAnalysis) -> str | None:
         if result.error_message:
             return f"{result.model_name}: {result.error_message}"
     return None
+
+
+def _log_perf_summary(job_id: str, perf_stats: dict, job_start: float) -> None:
+    """Log lightweight performance metrics for an analysis job."""
+    total_reviews = perf_stats.get("total_reviews", 0)
+    llm_calls = perf_stats.get("llm_calls", 0)
+    cached = perf_stats.get("cached", 0)
+    successful = perf_stats.get("successful_reviews", 0)
+    failed = perf_stats.get("failed_reviews", 0)
+    retries = perf_stats.get("retries", 0)
+    latencies = perf_stats.get("llm_latencies_ms", [])
+    total_sec = time.time() - job_start
+    avg_latency_sec = (sum(latencies) / len(latencies) / 1000) if latencies else 0.0
+    throughput = (successful / (total_sec / 60)) if total_sec > 0 and successful else 0.0
+
+    logger.info(f"[Job {job_id}] [PERF] total_reviews={total_reviews}")
+    logger.info(f"[Job {job_id}] [PERF] llm_calls={llm_calls}")
+    logger.info(f"[Job {job_id}] [PERF] cached={cached}")
+    logger.info(f"[Job {job_id}] [PERF] successful={successful}")
+    logger.info(f"[Job {job_id}] [PERF] failed={failed}")
+    logger.info(f"[Job {job_id}] [PERF] retries={retries}")
+    logger.info(f"[Job {job_id}] [PERF] avg_llm_latency={avg_latency_sec:.1f}s")
+    logger.info(f"[Job {job_id}] [PERF] total_time={total_sec / 60:.1f}min")
+    logger.info(f"[Job {job_id}] [PERF] throughput={throughput:.1f} reviews/min")
 
 
 async def _mark_job_complete(db, job_id: str, dataset_id: str) -> None:
