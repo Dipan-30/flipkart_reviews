@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
+import numpy as np
 import pandas as pd
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -71,16 +72,18 @@ async def get_sales_datasets(db: AsyncIOMotorDatabase, user_id: str) -> list[dic
 async def get_products_with_both_data(
     db: AsyncIOMotorDatabase, user_id: str
 ) -> list[dict]:
-    """Return products that appear in both reviews (analysis_results) and sales_records."""
-    # Products in sales
-    sales_products_cursor = db.sales_records.distinct("product_name", {"user_id": user_id})
-    # distinct returns a list directly for motor
+    """Return products that appear in both the user's reviews and their sales data."""
+    # Products in this user's sales records only
     sales_products = set(await db.sales_records.distinct("product_name", {"user_id": user_id}))
 
-    # Products with completed analysis
+    # Products with completed analysis scoped to this user's datasets
+    user_dataset_ids = await db.datasets.distinct("_id", {"user_id": user_id})
+    user_dataset_id_strs = [str(d) for d in user_dataset_ids]
+
     review_products = set(await db.analysis_results.distinct(
-        "product_name", {"status": "completed"}
-    ))
+        "product_name",
+        {"dataset_id": {"$in": user_dataset_id_strs}, "status": "completed"},
+    )) if user_dataset_id_strs else set()
 
     overlap = sales_products & review_products
     return [{"product_name": p} for p in sorted(overlap)]
@@ -93,8 +96,14 @@ async def build_joined_dataset(
     product_name: str,
 ) -> pd.DataFrame | None:
     """
-    Join daily sales records with daily sentiment index on (date, product_name).
-    Returns a DataFrame or None if insufficient data.
+    Join daily sales records with LAG-1 daily sentiment on (date, product_name).
+
+    Lag-1: sentiment(t-1) is used to predict sales(t).
+    This prevents same-day leakage.
+
+    Returns a DataFrame (date-indexed) or None if insufficient data.
+    NaN sentinel in 'lagged_sentiment' means no sentiment for that day;
+    imputation happens in run_training AFTER train/test split.
     """
     # Load sales records
     cursor = db.sales_records.find(
@@ -110,24 +119,25 @@ async def build_joined_dataset(
     sales_df = pd.DataFrame(sales_docs)
     sales_df["date"] = pd.to_datetime(sales_df["date"])
 
-    # Load sentiment
+    # Load daily sentiment
     sentiment_records = await get_daily_sentiment(db, review_dataset_id, product_name)
 
     if not sentiment_records:
-        logger.warning(f"No daily sentiment records found for {product_name}. Using SARIMA only.")
-        sales_df = sales_df.sort_values("date").set_index("date")
-        return sales_df
+        logger.warning(f"No daily sentiment records found for '{product_name}'. Using SARIMA only.")
+        return sales_df.sort_values("date").set_index("date")
 
     sentiment_df = pd.DataFrame(sentiment_records)
     sentiment_df["date"] = pd.to_datetime(sentiment_df["date"])
-    sentiment_df = sentiment_df.rename(columns={"avg_score": "sentiment_score"})
+    sentiment_df = sentiment_df.rename(columns={"avg_score": "lagged_sentiment"})
+    sentiment_df = sentiment_df.sort_values("date")
+
+    # Lag-1: shift sentiment forward by 1 day so sentiment(date D) → sales(date D+1)
+    sentiment_df["date"] = sentiment_df["date"] + pd.Timedelta(days=1)
 
     merged = sales_df.merge(
-        sentiment_df[["date", "sentiment_score"]], on="date", how="left"
+        sentiment_df[["date", "lagged_sentiment"]], on="date", how="left"
     )
-    merged["sentiment_score"] = merged["sentiment_score"].fillna(merged["sentiment_score"].mean())
-    merged = merged.sort_values("date").set_index("date")
-    return merged
+    return merged.sort_values("date").set_index("date")
 
 
 async def run_training(
@@ -143,35 +153,68 @@ async def run_training(
 ) -> dict:
     """
     Train SARIMA + SARIMAX and store results in forecasting_runs.
-    Returns the run document.
+
+    Methodology:
+    - Lag-1 sentiment: sentiment(t-1) → sales(t); eliminates same-day leakage.
+    - Train-only imputation: missing lagged_sentiment filled with TRAINING-set mean only.
+    - SARIMAX future exog: training-mean repeated for forecast horizon (future sentiment unknown).
+    - Seasonality auto-disabled when training set is too small for the requested period.
+    - Both SARIMA and SARIMAX evaluated on the same chronological test window.
+    - Metrics: MAE, RMSE, MAPE on out-of-sample test set only.
+
+    Minimum: 10 rows. Recommended: 60+ days for weekly seasonality.
     """
     df = await build_joined_dataset(db, sales_dataset_id, review_dataset_id, product_name)
     if df is None or len(df) < 10:
         raise ValueError(
             f"Insufficient data for product '{product_name}'. "
-            f"Need at least 10 rows, got {len(df) if df is not None else 0}."
+            f"Need at least 10 rows, got {len(df) if df is not None else 0}. "
+            f"Recommended: 60+ days for meaningful seasonal analysis."
         )
 
     units = df["units_sold"]
-    has_sentiment = "sentiment_score" in df.columns
+    has_sentiment = "lagged_sentiment" in df.columns and df["lagged_sentiment"].notna().any()
 
     train_units, test_units = train_test_split_chronological(units, test_fraction)
 
+    # Auto-disable seasonality when training data is too small for the period
+    s = seasonal_order[3] if len(seasonal_order) == 4 else 0
+    effective_seasonal_order = tuple(seasonal_order)
+    if s > 0 and len(train_units) <= 2 * s:
+        logger.warning(
+            f"Disabling seasonality (s={s}): training set has only {len(train_units)} points "
+            f"(need > {2 * s}). Setting seasonal_order=(0,0,0,0)."
+        )
+        effective_seasonal_order = (0, 0, 0, 0)
+
     sarima_result = fit_sarima(
         train_units, test_units,
-        order=tuple(order), seasonal_order=tuple(seasonal_order),
+        order=tuple(order), seasonal_order=effective_seasonal_order,
         forecast_horizon=forecast_horizon,
     )
 
     sarimax_result = None
     if has_sentiment:
-        sentiment = df["sentiment_score"]
+        sentiment = df["lagged_sentiment"]
         train_sent, test_sent = train_test_split_chronological(sentiment, test_fraction)
+
+        # Impute with TRAINING mean only — never use test-set information
+        train_mean = float(train_sent.mean()) if train_sent.notna().any() else 3.0
+        train_sent = train_sent.fillna(train_mean)
+        test_sent = test_sent.fillna(train_mean)
+
+        # Future exog: repeat training mean (future real-world sentiment is unknown)
+        future_exog_vals = pd.Series(
+            np.full(forecast_horizon, train_mean),
+            dtype=float,
+        )
+
         try:
             sarimax_result = fit_sarimax(
                 train_units, test_units,
                 exog_train=train_sent, exog_test=test_sent,
-                order=tuple(order), seasonal_order=tuple(seasonal_order),
+                future_exog=future_exog_vals,
+                order=tuple(order), seasonal_order=effective_seasonal_order,
                 forecast_horizon=forecast_horizon,
             )
         except Exception as exc:
@@ -196,7 +239,7 @@ async def run_training(
         "product_name": product_name,
         "user_id": user_id,
         "order": list(order),
-        "seasonal_order": list(seasonal_order),
+        "seasonal_order": list(effective_seasonal_order),
         "forecast_horizon": forecast_horizon,
         "test_fraction": test_fraction,
         "n_train": len(train_units),
