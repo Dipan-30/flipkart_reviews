@@ -66,6 +66,12 @@ async def create_dataset_from_csv(
             else:
                 doc[field] = None
 
+        # Persist review_date so the sentiment-index service can join on it.
+        # csv_utils normalises the column to "date" in column_mapping.
+        date_val = row.get("date")
+        if date_val and isinstance(date_val, str) and date_val.strip():
+            doc["review_date"] = date_val.strip()
+
         # Ground truth stored separately, never sent to LLM
         if has_ground_truth:
             gt = row.get("ground_truth_sentiment")

@@ -346,3 +346,57 @@ async def _get_dataset(db, dataset_id: str) -> Optional[dict]:
         return await db.datasets.find_one({"_id": ObjectId(dataset_id)})
     except (InvalidId, TypeError):
         return None
+
+
+def calculate_recommendation(score: Optional[float], total_reviews: int) -> tuple[str, str, str, list[str], list[str]]:
+    if total_reviews == 0 or score is None:
+        return "Insufficient Data", "Low", "Not enough reviews analyzed yet.", ["Insufficient reviews"], []
+    if score >= 4.0:
+        return "Highly Recommended", "High", "Overwhelmingly positive feedback across reviews.", ["High customer satisfaction score (>= 4.0)", "Strong positive sentiment ratio"], []
+    if score >= 3.5:
+        return "Recommended", "High", "Positive customer feedback overall.", ["Good average sentiment score (>= 3.5)"], []
+    if score >= 2.5:
+        return "Consider Carefully", "Medium", "Mixed reviews from users.", ["Moderate sentiment score (2.5 - 3.5)"], ["Review individual negative feedback"]
+    return "Not Recommended", "High", "Predominantly negative customer sentiment.", ["Low average sentiment score (< 2.5)"], ["High volume of negative complaints"]
+
+
+async def get_dataset_recommendation(dataset_id: str, dataset: Optional[dict] = None) -> dict:
+    comp = await get_model_comparison(dataset_id, dataset=dataset)
+    overall_score = comp.get("ensemble_score")
+    total_reviews = comp.get("analyzed_reviews", 0)
+
+    tier, conf, expl, reasons, warnings = calculate_recommendation(overall_score, total_reviews)
+
+    # Per-product recommendations
+    rows, _ = await load_model_rows(dataset_id)
+    products_map: dict[str, list[dict]] = {}
+    for r in rows:
+        pname = r.get("product_name") or "General"
+        products_map.setdefault(pname, []).append(r)
+
+    products_res = []
+    for pname, prows in products_map.items():
+        pscores = [r["ai_sentiment_score"] for r in prows if r.get("ai_sentiment_score") is not None]
+        avg_p = round(sum(pscores) / len(pscores), 2) if pscores else None
+        ptier, _, _, _, _ = calculate_recommendation(avg_p, len(pscores))
+        products_res.append({
+            "product_name": pname,
+            "label": pname,
+            "review_count": len(set(r.get("review_id") for r in prows if r.get("review_id"))),
+            "ensemble_score": avg_p,
+            "recommendation": ptier
+        })
+
+    return {
+        "dataset_id": dataset_id,
+        "overall": {
+            "recommendation": tier,
+            "recommendation_score": overall_score or 0.0,
+            "confidence": conf,
+            "explanation": expl,
+            "reasons": reasons,
+            "warnings": warnings,
+            "narrative_source": "deterministic"
+        },
+        "products": products_res
+    }

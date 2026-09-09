@@ -236,12 +236,12 @@ def main() -> int:
                       json.dumps(body.get("columns_detected"))[:160])
 
     status, dataset = client.get(f"/api/datasets/{dataset_id}")
-    checks.record("4.  dataset created", status == 200 and dataset.get("dataset_id") == dataset_id,
+    checks.record("4.  dataset created", status == 200 and (dataset.get("dataset_id") or dataset.get("id")) == dataset_id,
                   f"{dataset.get('total_reviews')} reviews, ground_truth={dataset.get('has_ground_truth')}")
 
     status, listing = client.get("/api/datasets")
     checks.record("4.  dataset appears in the user's list",
-                  status == 200 and any(d["dataset_id"] == dataset_id for d in listing.get("datasets", [])),
+                  status == 200 and any((d.get("dataset_id") or d.get("id")) == dataset_id for d in listing.get("datasets", [])),
                   f"{listing.get('total')} dataset(s)")
 
     status, _ = client.upload_csv("broken.csv", MALFORMED_CSV)

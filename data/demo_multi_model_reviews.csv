@@ -1,19 +1,31 @@
-product_name,product_price,Review,Summary,Sentiment
-Samsung Galaxy M34 5G,18999,"Battery easily lasts two full days with heavy use and the charger tops it up quickly. Camera detail in daylight is excellent and the AMOLED display stays bright outdoors.","Excellent battery and display",positive
-Samsung Galaxy M34 5G,18999,"Gaming performance is smooth at medium settings and the phone barely warms up. Build feels solid for the price and the fingerprint sensor unlocks instantly.","Great value performer",positive
-Samsung Galaxy M34 5G,18999,"Display is gorgeous with deep blacks and vivid colours. Battery comfortably lasts a day and a half even with constant streaming.","Beautiful screen",positive
-Samsung Galaxy M34 5G,18999,"Camera is the highlight for me, portrait shots look natural and not over sharpened. Software is mostly clean and battery life is dependable.","Camera impresses",positive
-Samsung Galaxy M34 5G,18999,"Feels premium in the hand and performance handles multitasking without stutter. Speakers are surprisingly loud for this segment.","Very satisfied",positive
-Samsung Galaxy M34 5G,18999,"The camera is excellent but the battery drains faster than I expected during long video calls. Acceptable overall for the price.","Mixed but acceptable",neutral
-OnePlus Nord CE 3,24999,"Charging speed is unbelievable, empty to full in a little over half an hour. The display is smooth at high refresh rate and the design looks classy.","Charging is superb",positive
-OnePlus Nord CE 3,24999,"Good all rounder. Daytime photos are sharp and performance stays fluid across daily apps and light gaming sessions.","Solid daily driver",positive
-OnePlus Nord CE 3,24999,"Speaker output is clear and the in hand feel is comfortable for one handed use. Battery lasts a full working day.","Comfortable and reliable",positive
-OnePlus Nord CE 3,24999,"Performance is fine and the display is decent, but low light camera output is noisy and the plastic back picks up scratches quickly. Average overall.","Average experience",neutral
-OnePlus Nord CE 3,24999,"The phone heats up badly during gaming and while charging, and battery capacity dropped noticeably after a year. Disappointed at this price.","Heating problem",negative
-OnePlus Nord CE 3,24999,"Camera struggles indoors and photos come out grainy. Also started facing random app crashes after the last software update.","Camera and software issues",negative
-boAt Rockerz 450 Pro,1999,"Sound quality is acceptable for casual listening and the battery lasts a long time between charges, but the fit is loose on a smaller head.","Okay for the price",neutral
-boAt Rockerz 450 Pro,1999,"The left ear cup developed a crackling noise within three weeks. Bluetooth also keeps disconnecting when I walk a few steps from my desk.","Poor durability",negative
-boAt Rockerz 450 Pro,1999,"Bass is muddy and the mids sound hollow. The headband material started peeling within two months of light use.","Bad sound and build",negative
-boAt Rockerz 450 Pro,1999,"Bluetooth connectivity drops constantly during calls and the microphone makes me sound distant to the other person. Very frustrating.","Connectivity is unreliable",negative
-boAt Rockerz 450 Pro,1999,"Build quality is flimsy and the hinge cracked while folding it normally for storage. The battery also stopped holding charge properly.","Broke quickly",negative
-boAt Rockerz 450 Pro,1999,"Sound turns tinny at higher volume and there is a constant hiss in quiet passages. The charging port stopped responding after a month.","Not durable, poor sound",negative
+product_name,product_price,Review,review_date,Summary,Sentiment
+Samsung Galaxy M34,16999,"Excellent battery life and great camera performance.",2024-01-01,Excellent battery,positive
+Samsung Galaxy M34,16999,"Screen quality is superb for the price point.",2024-01-02,Great screen,positive
+Samsung Galaxy M34,16999,"Heating issues during gaming sessions.",2024-01-03,Heating problem,negative
+Samsung Galaxy M34,16999,"Very good value for money smartphone.",2024-01-04,Good value,positive
+Samsung Galaxy M34,16999,"Camera disappoints in low light conditions.",2024-01-05,Poor night camera,negative
+Samsung Galaxy M34,16999,"Long lasting battery is the highlight.",2024-01-06,Amazing battery,positive
+Samsung Galaxy M34,16999,"Performance is smooth for daily tasks.",2024-01-07,Smooth performance,positive
+Samsung Galaxy M34,16999,"Build quality feels premium despite plastic.",2024-01-08,Good build,positive
+Realme Narzo 60 5G,17999,"Blazing fast 5G connectivity and great performance.",2024-01-01,Fast 5G,positive
+Realme Narzo 60 5G,17999,"Battery drains quickly with 5G enabled.",2024-01-02,Battery drain,negative
+Realme Narzo 60 5G,17999,"Display quality is outstanding for the price.",2024-01-03,Great display,positive
+Realme Narzo 60 5G,17999,"UI is a bit bloated with ads.",2024-01-04,Bloatware issue,negative
+Realme Narzo 60 5G,17999,"Camera system produces great photos.",2024-01-05,Good camera,positive
+Realme Narzo 60 5G,17999,"Smooth gaming experience with 5G.",2024-01-06,Gaming great,positive
+Realme Narzo 60 5G,17999,"Good value proposition in the midrange.",2024-01-07,Good value,positive
+Realme Narzo 60 5G,17999,"Speaker quality could be better.",2024-01-08,Weak speakers,negative
+Laptop Air 14,45999,"Incredibly light and portable design.",2024-01-01,Lightweight,positive
+Laptop Air 14,45999,"Battery life lasts all day easily.",2024-01-02,All-day battery,positive
+Laptop Air 14,45999,"Display is bright and color-accurate.",2024-01-03,Good display,positive
+Laptop Air 14,45999,"Performance drops under heavy workloads.",2024-01-04,Performance issues,negative
+Laptop Air 14,45999,"Keyboard feel is excellent for typing.",2024-01-05,Great keyboard,positive
+Laptop Air 14,45999,"Fan noise is too loud during rendering.",2024-01-06,Loud fan,negative
+Laptop Air 14,45999,"Excellent build quality, feels premium.",2024-01-07,Premium build,positive
+Laptop Air 14,45999,"Great for remote work and presentations.",2024-01-08,Work laptop,positive
+OnePlus Nord 3,24999,"Fastest charging in its class bar none.",2024-01-01,Superfast charging,positive
+OnePlus Nord 3,24999,"Great AMOLED display with high refresh rate.",2024-01-02,Vibrant display,positive
+OnePlus Nord 3,24999,"Camera needs improvement in portrait mode.",2024-01-03,Portrait issues,negative
+OnePlus Nord 3,24999,"OxygenOS is clean and smooth to use.",2024-01-04,Clean OS,positive
+OnePlus Nord 3,24999,"Gets warm after prolonged gaming sessions.",2024-01-05,Heating during gaming,negative
+OnePlus Nord 3,24999,"Excellent overall package for the price.",2024-01-06,Great value,positive

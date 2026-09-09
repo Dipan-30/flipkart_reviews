@@ -166,13 +166,13 @@ export default function SalesForecastingPage() {
   }, [selectedReviewDatasetId, selectedProduct]);
 
   const handleTrain = useCallback(async () => {
-    if (!selectedSalesDataset || !selectedReviewDatasetId || !selectedProduct) return;
+    if (!selectedSalesDataset || !selectedProduct) return;
     setBusy(true);
     setError('');
     try {
       const run = await forecastingService.train({
         sales_dataset_id: selectedSalesDataset.sales_dataset_id,
-        review_dataset_id: selectedReviewDatasetId,
+        review_dataset_id: selectedReviewDatasetId || 'none',
         product_name: selectedProduct,
         forecast_horizon: forecastHorizon,
         test_fraction: testFraction,
@@ -338,11 +338,16 @@ export default function SalesForecastingPage() {
                 onChange={e => setSelectedReviewDatasetId(e.target.value)}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
               >
-                <option value="">— Select dataset —</option>
+                <option value="none">None (SARIMA Baseline Only)</option>
                 {reviewDatasets.map(d => (
                   <option key={d.id} value={d.id}>{d.filename}</option>
                 ))}
               </select>
+              {reviewDatasets.length === 0 && (
+                <p className="text-xs text-amber-600 mt-1">
+                  No completed review datasets found. Using SARIMA baseline mode.
+                </p>
+              )}
             </div>
 
             <div>
@@ -352,7 +357,7 @@ export default function SalesForecastingPage() {
                 onChange={e => setSelectedProduct(e.target.value)}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
               >
-                <option value="">— All products —</option>
+                <option value="">— Select product —</option>
                 {selectedSalesDataset.products.map(p => (
                   <option key={p} value={p}>{p}</option>
                 ))}
@@ -389,8 +394,8 @@ export default function SalesForecastingPage() {
               Back
             </button>
             <button
-              onClick={() => setStep(2)}
-              disabled={!selectedReviewDatasetId}
+              onClick={() => setStep(selectedReviewDatasetId && selectedReviewDatasetId !== 'none' ? 2 : 3)}
+              disabled={!selectedProduct}
               className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition disabled:opacity-50 font-medium"
             >
               Continue
@@ -466,16 +471,16 @@ export default function SalesForecastingPage() {
           </div>
 
           <div className="flex gap-3">
-            <button onClick={() => setStep(2)} className="px-4 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50">
+            <button onClick={() => setStep(selectedReviewDatasetId && selectedReviewDatasetId !== 'none' ? 2 : 1)} className="px-4 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50">
               Back
             </button>
             <button
               onClick={handleTrain}
-              disabled={busy || !selectedSalesDataset || !selectedReviewDatasetId || !selectedProduct}
+              disabled={busy || !selectedSalesDataset || !selectedProduct}
               className="flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition disabled:opacity-50 font-medium"
             >
               <Play size={16} className="mr-2" />
-              {busy ? 'Training (may take a moment)...' : 'Train SARIMA & SARIMAX'}
+              {busy ? 'Training (may take a moment)...' : 'Train Model'}
             </button>
           </div>
         </div>

@@ -29,11 +29,8 @@ async def build_daily_sentiment_index(
 
     Also upserts the results into the `daily_sentiment` collection.
     """
-    # Pull reviews that have a date field
-    query: dict = {"dataset_id": dataset_id, "review_date": {"$exists": True, "$ne": None}}
-    if product_name:
-        query["product_name"] = product_name
-
+    # Pull ALL completed analysis_results for this dataset (no review_date filter —
+    # dates live on the reviews collection, not analysis_results).
     cursor = db.analysis_results.find(
         {"dataset_id": dataset_id, "status": "completed"},
         {"review_id": 1, "ai_sentiment_score": 1, "product_name": 1},
@@ -47,7 +44,12 @@ async def build_daily_sentiment_index(
         if doc.get("ai_sentiment_score") is not None
     }
 
-    # Pull reviews (with dates)
+    logger.info(
+        f"build_daily_sentiment_index: dataset={dataset_id} | "
+        f"{len(score_map)} scored review(s) found in analysis_results"
+    )
+
+    # Pull reviews that have a review_date stored
     rev_query: dict = {"dataset_id": dataset_id, "review_date": {"$exists": True, "$ne": None}}
     if product_name:
         rev_query["product_name"] = product_name
@@ -57,6 +59,11 @@ async def build_daily_sentiment_index(
         {"_id": 1, "review_date": 1, "product_name": 1},
     )
     reviews = await rev_cursor.to_list(length=None)
+
+    logger.info(
+        f"build_daily_sentiment_index: {len(reviews)} review(s) with review_date found "
+        f"in db.reviews for dataset={dataset_id}"
+    )
 
     if not reviews:
         logger.warning(

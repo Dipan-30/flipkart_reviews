@@ -41,7 +41,7 @@ async def upload_sales(
     db = get_db()
     try:
         meta = await svc.upload_sales_dataset(
-            db, content, file.filename, str(current_user["_id"])
+            db, content, file.filename, current_user.get("user_id") or str(current_user.get("_id"))
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -53,14 +53,14 @@ async def upload_sales(
 async def list_sales_datasets(current_user: dict = Depends(get_current_user)):
     """List all uploaded sales datasets for the current user."""
     db = get_db()
-    return await svc.get_sales_datasets(db, str(current_user["_id"]))
+    return await svc.get_sales_datasets(db, current_user.get("user_id") or str(current_user.get("_id")))
 
 
 @router.get("/products")
 async def get_products(current_user: dict = Depends(get_current_user)):
     """Return products that appear in both reviews and sales data."""
     db = get_db()
-    return await svc.get_products_with_both_data(db, str(current_user["_id"]))
+    return await svc.get_products_with_both_data(db, current_user.get("user_id") or str(current_user.get("_id")))
 
 
 @router.post("/build-sentiment-index", response_model=list[DailySentimentRecord])
@@ -115,7 +115,7 @@ async def train_models(
             sales_dataset_id=body.sales_dataset_id,
             review_dataset_id=body.review_dataset_id,
             product_name=body.product_name,
-            user_id=str(current_user["_id"]),
+            user_id=current_user.get("user_id") or str(current_user.get("_id")),
             order=tuple(body.order),
             seasonal_order=tuple(body.seasonal_order),
             forecast_horizon=body.forecast_horizon,
@@ -134,7 +134,7 @@ async def train_models(
 async def list_runs(current_user: dict = Depends(get_current_user)):
     """List all forecasting runs for the current user."""
     db = get_db()
-    docs = await svc.get_runs(db, str(current_user["_id"]))
+    docs = await svc.get_runs(db, current_user.get("user_id") or str(current_user.get("_id")))
     result = []
     for doc in docs:
         sarima_metrics = None
@@ -160,7 +160,7 @@ async def list_runs(current_user: dict = Depends(get_current_user)):
 async def get_run(run_id: str, current_user: dict = Depends(get_current_user)):
     """Get details of a single forecasting run."""
     db = get_db()
-    run = await svc.get_run(db, run_id, str(current_user["_id"]))
+    run = await svc.get_run(db, run_id, current_user.get("user_id") or str(current_user.get("_id")))
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found.")
     return run

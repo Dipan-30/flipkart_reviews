@@ -39,11 +39,27 @@ def validate_and_parse_csv(content: bytes, filename: str = "upload.csv") -> pd.D
     # Normalize column names
     df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
 
+    # Map column aliases
+    COLUMN_ALIASES = {
+        "sales": "units_sold",
+        "units": "units_sold",
+        "quantity": "units_sold",
+        "quantity_sold": "units_sold",
+        "volume": "units_sold",
+        "product": "product_name",
+        "item": "product_name",
+        "product_title": "product_name",
+        "timestamp": "date",
+        "day": "date",
+        "datetime": "date",
+    }
+    df.rename(columns=COLUMN_ALIASES, inplace=True)
+
     missing = REQUIRED_COLUMNS - set(df.columns)
     if missing:
         raise ValueError(
             f"Missing required columns: {sorted(missing)}. "
-            f"Required: {sorted(REQUIRED_COLUMNS)}"
+            f"Required: 'date', 'product_name', 'units_sold' (or 'sales', 'quantity')"
         )
 
     # Parse date column
