@@ -145,10 +145,11 @@ class OllamaLLMService(LLMService):
             "model": self.model,
             "prompt": prompt,
             "stream": False,
+            "keep_alive": "10m",
             "options": {
                 "temperature": 0.1,   # Low temperature for consistent structured output
                 "top_p": 0.9,
-                "num_predict": 1024,
+                "num_predict": 300,   # Capped output token limit for faster inference
             },
         }
         want_json = self.force_json if force_json is None else force_json

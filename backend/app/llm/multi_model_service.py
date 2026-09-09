@@ -131,6 +131,8 @@ class MultiModelAnalysisService:
         product_price: Optional[str] = None,
         summary: Optional[str] = None,
         skip_unavailable: bool = True,
+        review_id: Optional[str] = None,
+        db: Optional[object] = None,
     ) -> MultiModelAnalysis:
         """
         Send the identical review to every configured model.
@@ -149,6 +151,8 @@ class MultiModelAnalysisService:
                 product_price=product_price,
                 summary=summary,
                 skip_unavailable=skip_unavailable,
+                review_id=review_id,
+                db=db,
             )
             for service in self.services
         ]
@@ -187,6 +191,8 @@ class MultiModelAnalysisService:
         product_price: Optional[str],
         summary: Optional[str],
         skip_unavailable: bool,
+        review_id: Optional[str] = None,
+        db: Optional[object] = None,
     ) -> ModelAnalysisResult:
         """Analyze with one model, converting any failure into a result row."""
         model_name = getattr(service, "model", "unknown")
@@ -198,6 +204,34 @@ class MultiModelAnalysisService:
                 error_message=f"Model '{model_name}' is not installed in Ollama. Run: ollama pull {model_name}",
                 status="unavailable",
             )
+
+        # Check if already successfully analyzed for (review_id, model_name)
+        if db is not None and review_id:
+            try:
+                existing = await db.model_analysis_results.find_one(
+                    {"review_id": review_id, "model_name": model_name, "status": "completed"}
+                )
+                if existing:
+                    logger.info(f"[{model_name}] Reusing cached result for review {review_id}")
+                    from app.schemas.llm import AspectSentiment, LLMAnalysisResult
+                    aspects = [AspectSentiment(**a) if isinstance(a, dict) else a for a in existing.get("aspects", [])]
+                    res = LLMAnalysisResult(
+                        sentiment=existing.get("sentiment", "neutral"),
+                        ai_sentiment_score=existing.get("ai_sentiment_score", 3.0),
+                        reason=existing.get("reason", ""),
+                        aspects=aspects,
+                        positive_points=existing.get("positive_points", []),
+                        negative_points=existing.get("negative_points", []),
+                        keywords=existing.get("keywords", []),
+                    )
+                    return ModelAnalysisResult.from_success(
+                        model_name=model_name,
+                        result=res,
+                        processing_time_ms=existing.get("processing_time_ms", 0),
+                        attempts=existing.get("attempts", 1),
+                    )
+            except Exception as exc:
+                logger.warning(f"[{model_name}] Cache lookup failed for review {review_id}: {exc}")
 
         started = time.time()
         async with self._semaphore:

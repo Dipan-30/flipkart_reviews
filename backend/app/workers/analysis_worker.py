@@ -156,6 +156,8 @@ async def _process_single_review(
                 product_name=review.get("product_name"),
                 product_price=review.get("product_price"),
                 summary=review.get("summary"),
+                review_id=review_id,
+                db=db,
             )
 
             await _store_model_results(db, dataset_id, user_id, review, analysis, now)
