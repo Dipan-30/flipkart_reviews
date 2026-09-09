@@ -143,3 +143,35 @@ async def start_analysis(
         dataset_id=dataset_id,
         message=f"Analysis started for {pending_count} reviews.",
     )
+
+
+@router.post("/{dataset_id}/stop")
+async def stop_dataset_analysis(
+    dataset_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Stop analysis for a given dataset."""
+    db = get_db()
+    from datetime import datetime, timezone
+    doc = await get_dataset(dataset_id, current_user["user_id"])
+    if not doc:
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+
+    now = datetime.now(timezone.utc)
+    await db.analysis_jobs.update_many(
+        {"dataset_id": dataset_id, "status": "running"},
+        {"$set": {"status": "stopped", "completed_at": now, "error_message": "Analysis stopped by user."}},
+    )
+
+    await db.datasets.update_one(
+        {"_id": ObjectId(dataset_id)},
+        {"$set": {"status": "stopped"}}
+    )
+
+    await db.reviews.update_many(
+        {"dataset_id": dataset_id, "processing_status": "processing"},
+        {"$set": {"processing_status": "pending"}}
+    )
+
+    logger.info(f"Dataset analysis stopped | dataset={dataset_id}")
+    return {"message": "Analysis stopped successfully.", "dataset_id": dataset_id}

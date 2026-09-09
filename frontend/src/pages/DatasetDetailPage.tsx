@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { datasetService } from '../services/datasets';
 import { Dataset } from '../types/dataset';
-import { Database, Play, FileText, CheckCircle2, Clock, AlertCircle, BarChart2, Layers } from 'lucide-react';
+import { Database, Play, FileText, CheckCircle2, Clock, AlertCircle, BarChart2, Layers, Square } from 'lucide-react';
 import { formatPercent } from '../utils/formatters';
 
 
@@ -11,6 +11,7 @@ export default function DatasetDetailPage() {
   const [dataset, setDataset] = useState<Dataset | null>(null);
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [error, setError] = useState('');
   const navigate = useNavigate();
 
@@ -38,12 +39,26 @@ export default function DatasetDetailPage() {
     }
   };
 
+  const handleStopAnalysis = async () => {
+    if (!id || stopping) return;
+    setStopping(true);
+    try {
+      await datasetService.stop(id);
+      setDataset(prev => prev ? { ...prev, status: 'stopped' } : null);
+    } catch (e: any) {
+      setError(e.response?.data?.detail || 'Failed to stop analysis.');
+    } finally {
+      setStopping(false);
+    }
+  };
+
   if (loading) return <div className="p-8 text-center text-slate-500">Loading dataset...</div>;
   if (!dataset) return <div className="p-8 text-center text-red-500">{error}</div>;
 
   const isCompleted = dataset.status === 'completed';
   const isAnalyzing = dataset.status === 'analyzing';
-  const canAnalyze = dataset.status === 'uploaded' || (dataset.failed_reviews > 0 && !isAnalyzing);
+  const isStopped = dataset.status === 'stopped' || dataset.status === 'cancelled';
+  const canAnalyze = dataset.status === 'uploaded' || isStopped || (dataset.failed_reviews > 0 && !isAnalyzing);
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -63,7 +78,18 @@ export default function DatasetDetailPage() {
               className="flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition disabled:opacity-50"
             >
               <Play size={18} className="mr-2" />
-              {starting ? 'Starting...' : dataset.status === 'uploaded' ? 'Start AI Analysis' : 'Retry Failed Reviews'}
+              {starting ? 'Starting...' : dataset.status === 'uploaded' ? 'Start AI Analysis' : isStopped ? 'Resume AI Analysis' : 'Retry Failed Reviews'}
+            </button>
+          )}
+
+          {isAnalyzing && (
+            <button
+              onClick={handleStopAnalysis}
+              disabled={stopping}
+              className="flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition disabled:opacity-50"
+            >
+              <Square size={18} className="mr-2 fill-current" />
+              {stopping ? 'Stopping...' : 'Stop Analysis'}
             </button>
           )}
           
@@ -120,6 +146,7 @@ export default function DatasetDetailPage() {
           <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium
             ${dataset.status === 'completed' ? 'bg-green-100 text-green-800' : 
               dataset.status === 'analyzing' ? 'bg-blue-100 text-blue-800 animate-pulse' :
+              dataset.status === 'stopped' || dataset.status === 'cancelled' ? 'bg-amber-100 text-amber-800' :
               dataset.status === 'uploaded' ? 'bg-slate-100 text-slate-800' :
               'bg-red-100 text-red-800'}`}>
             {dataset.status.toUpperCase()}

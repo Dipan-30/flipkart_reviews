@@ -135,6 +135,15 @@ async def _process_single_review(
     now = datetime.now(timezone.utc)
 
     async with semaphore:
+        # Check if job was cancelled / stopped
+        job_doc = await db.analysis_jobs.find_one({"_id": ObjectId(job_id)}, {"status": 1})
+        if job_doc and job_doc.get("status") in ["stopped", "cancelled"]:
+            await db.reviews.update_one(
+                {"_id": review["_id"]},
+                {"$set": {"processing_status": "pending"}}
+            )
+            return
+
         try:
             await db.reviews.update_one(
                 {"_id": review["_id"]},
@@ -411,6 +420,11 @@ def _first_error(analysis: MultiModelAnalysis) -> str | None:
 
 async def _mark_job_complete(db, job_id: str, dataset_id: str) -> None:
     """Mark job and dataset as completed."""
+    job = await db.analysis_jobs.find_one({"_id": ObjectId(job_id)}, {"status": 1})
+    if job and job.get("status") in ["stopped", "cancelled"]:
+        logger.info(f"[Job {job_id}] Was stopped by user. Skipping completion status update.")
+        return
+
     now = datetime.now(timezone.utc)
     await db.analysis_jobs.update_one(
         {"_id": ObjectId(job_id)},

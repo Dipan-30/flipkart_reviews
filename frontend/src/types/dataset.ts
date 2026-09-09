@@ -6,7 +6,7 @@ export interface Dataset {
   processed_reviews: number;
   successful_reviews: number;
   failed_reviews: number;
-  status: 'uploaded' | 'analyzing' | 'completed' | 'failed' | 'paused';
+  status: 'uploaded' | 'analyzing' | 'completed' | 'failed' | 'paused' | 'stopped' | 'cancelled';
   has_ground_truth: boolean;
   original_columns: string[];
   created_at: string;

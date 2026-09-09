@@ -6,10 +6,12 @@ of a given product on each date. It is stored in the `daily_sentiment`
 collection and used as an exogenous regressor in SARIMAX.
 """
 import logging
+import re
 from collections import defaultdict
 from datetime import date, datetime, timezone
 from typing import Optional
 
+import pandas as pd
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 logger = logging.getLogger(__name__)
@@ -29,20 +31,23 @@ async def build_daily_sentiment_index(
 
     Also upserts the results into the `daily_sentiment` collection.
     """
-    # Pull ALL completed analysis_results for this dataset (no review_date filter —
-    # dates live on the reviews collection, not analysis_results).
+    # Pull all analysis_results for this dataset
     cursor = db.analysis_results.find(
-        {"dataset_id": dataset_id, "status": "completed"},
-        {"review_id": 1, "ai_sentiment_score": 1, "product_name": 1},
+        {"dataset_id": dataset_id},
+        {"review_id": 1, "ai_sentiment_score": 1, "ensemble_score": 1, "product_name": 1, "status": 1},
     )
     result_docs = await cursor.to_list(length=None)
 
     # Map review_id -> analysis score
-    score_map = {
-        doc["review_id"]: doc.get("ai_sentiment_score")
-        for doc in result_docs
-        if doc.get("ai_sentiment_score") is not None
-    }
+    score_map = {}
+    for doc in result_docs:
+        if doc.get("status") and doc.get("status") == "failed":
+            continue
+        score = doc.get("ai_sentiment_score")
+        if score is None:
+            score = doc.get("ensemble_score")
+        if score is not None:
+            score_map[str(doc["review_id"])] = float(score)
 
     logger.info(
         f"build_daily_sentiment_index: dataset={dataset_id} | "
@@ -51,8 +56,9 @@ async def build_daily_sentiment_index(
 
     # Pull reviews that have a review_date stored
     rev_query: dict = {"dataset_id": dataset_id, "review_date": {"$exists": True, "$ne": None}}
-    if product_name:
-        rev_query["product_name"] = product_name
+    if product_name and product_name.strip():
+        pname_clean = product_name.strip()
+        rev_query["product_name"] = {"$regex": f"^{re.escape(pname_clean)}$", "$options": "i"}
 
     rev_cursor = db.reviews.find(
         rev_query,
@@ -68,8 +74,7 @@ async def build_daily_sentiment_index(
     if not reviews:
         logger.warning(
             f"No reviews with review_date found for dataset {dataset_id}. "
-            "Sentiment index will be empty. "
-            "Tip: add a 'review_date' column to your reviews CSV."
+            "Sentiment index will be empty."
         )
         return []
 
@@ -80,17 +85,27 @@ async def build_daily_sentiment_index(
         score = score_map.get(rid)
         if score is None:
             continue
-        pname = rev.get("product_name", "Unknown")
+        pname = rev.get("product_name") or product_name or "Unknown"
         rdate = rev.get("review_date")
-        if rdate is None:
+        if rdate is None or (isinstance(rdate, float) and pd.isna(rdate)):
             continue
-        # Normalize date to YYYY-MM-DD string
+
+        # Standardize date to YYYY-MM-DD string
         if isinstance(rdate, datetime):
             date_str = rdate.strftime("%Y-%m-%d")
         elif isinstance(rdate, date):
             date_str = rdate.isoformat()
         else:
-            date_str = str(rdate)[:10]
+            d_raw = str(rdate).strip()
+            try:
+                parsed_dt = pd.to_datetime(d_raw)
+                if not pd.isna(parsed_dt):
+                    date_str = parsed_dt.strftime("%Y-%m-%d")
+                else:
+                    date_str = d_raw[:10]
+            except Exception:
+                date_str = d_raw[:10]
+
         buckets[(date_str, pname)].append(float(score))
 
     records = []

@@ -12,7 +12,7 @@ class DatasetResponse(BaseModel):
     processed_reviews: int
     successful_reviews: int
     failed_reviews: int
-    status: Literal["uploaded", "analyzing", "completed", "failed", "paused"]
+    status: Literal["uploaded", "analyzing", "completed", "failed", "paused", "stopped", "cancelled"]
     has_ground_truth: bool
     original_columns: list[str]
     created_at: datetime

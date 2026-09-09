@@ -30,5 +30,9 @@ export const datasetService = {
   async analyze(id: string): Promise<AnalysisJobStartResponse> {
     const response = await api.post(`/datasets/${id}/analyze`);
     return response.data;
+  },
+
+  async stop(id: string): Promise<void> {
+    await api.post(`/datasets/${id}/stop`);
   }
 };

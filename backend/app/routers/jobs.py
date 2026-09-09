@@ -1,6 +1,7 @@
 """Jobs router — status and retry."""
 import asyncio
 import logging
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from bson import ObjectId
 
@@ -17,8 +18,6 @@ def _format_job(doc: dict) -> JobStatusResponse:
     total = doc.get("total", 1) or 1
     processed = doc.get("processed", 0)
     models = doc.get("models") or []
-    # Counters are stored under MongoDB-safe keys ("gemma3:4b" -> "gemma3:4b"
-    # with "." replaced); map them back to the real model names when possible.
     raw_stats = doc.get("model_stats") or {}
     model_stats = {}
     for name in models:
@@ -64,6 +63,50 @@ async def get_job_status(
         raise HTTPException(status_code=404, detail="Job not found.")
 
     return _format_job(doc)
+
+
+@router.post("/{job_id}/stop", response_model=JobStatusResponse)
+@router.post("/{job_id}/cancel", response_model=JobStatusResponse)
+async def stop_job(
+    job_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Stop an in-progress AI analysis job."""
+    db = get_db()
+    try:
+        job = await db.analysis_jobs.find_one(
+            {"_id": ObjectId(job_id), "user_id": current_user["user_id"]}
+        )
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid job ID.")
+
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found.")
+
+    dataset_id = job["dataset_id"]
+    now = datetime.now(timezone.utc)
+
+    # Mark job as stopped
+    await db.analysis_jobs.update_one(
+        {"_id": ObjectId(job_id)},
+        {"$set": {"status": "stopped", "completed_at": now, "error_message": "Analysis stopped by user."}},
+    )
+
+    # Mark dataset as stopped
+    await db.datasets.update_one(
+        {"_id": ObjectId(dataset_id)},
+        {"$set": {"status": "stopped"}},
+    )
+
+    # Revert processing reviews back to pending
+    await db.reviews.update_many(
+        {"dataset_id": dataset_id, "processing_status": "processing"},
+        {"$set": {"processing_status": "pending"}},
+    )
+
+    logger.info(f"Analysis job {job_id} stopped by user.")
+    updated = await db.analysis_jobs.find_one({"_id": ObjectId(job_id)})
+    return _format_job(updated)
 
 
 @router.post("/{job_id}/retry", response_model=JobStatusResponse)

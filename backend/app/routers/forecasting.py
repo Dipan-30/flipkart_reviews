@@ -77,9 +77,9 @@ async def build_sentiment_index(
         raise HTTPException(
             status_code=404,
             detail=(
-                "No reviews with 'review_date' found for this dataset. "
-                "Make sure your reviews CSV includes a 'review_date' column and "
-                "analysis has completed."
+                "No daily sentiment records could be built for this dataset/product. "
+                "Ensure your reviews CSV contains a 'review_date' column, product names match, "
+                "and LLM sentiment analysis has completed."
             ),
         )
     return records

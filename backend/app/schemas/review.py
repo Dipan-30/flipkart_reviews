@@ -58,7 +58,7 @@ class JobStatusResponse(BaseModel):
 
     job_id: str
     dataset_id: str
-    status: Literal["pending", "running", "completed", "failed", "paused"]
+    status: Literal["pending", "running", "completed", "failed", "paused", "stopped", "cancelled"]
     total: int
     processed: int
     successful: int

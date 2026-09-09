@@ -5,6 +5,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
+import pandas as pd
 from bson import ObjectId
 
 from app.database.connection import get_db
@@ -69,8 +70,10 @@ async def create_dataset_from_csv(
         # Persist review_date so the sentiment-index service can join on it.
         # csv_utils normalises the column to "date" in column_mapping.
         date_val = row.get("date")
-        if date_val and isinstance(date_val, str) and date_val.strip():
-            doc["review_date"] = date_val.strip()
+        if date_val is not None and not pd.isna(date_val):
+            d_str = str(date_val).strip()
+            if d_str and d_str.lower() != "nan":
+                doc["review_date"] = d_str
 
         # Ground truth stored separately, never sent to LLM
         if has_ground_truth:

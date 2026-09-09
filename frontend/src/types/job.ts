@@ -7,7 +7,7 @@ export interface JobModelCounters {
 export interface JobStatusResponse {
   job_id: string;
   dataset_id: string;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'paused';
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'paused' | 'stopped' | 'cancelled';
   total: number;
   processed: number;
   successful: number;

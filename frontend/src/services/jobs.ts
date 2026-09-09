@@ -10,5 +10,15 @@ export const jobService = {
   async retry(jobId: string): Promise<JobStatusResponse> {
     const response = await api.post(`/jobs/${jobId}/retry`);
     return response.data;
+  },
+
+  async stop(jobId: string): Promise<JobStatusResponse> {
+    const response = await api.post(`/jobs/${jobId}/stop`);
+    return response.data;
+  },
+
+  async cancel(jobId: string): Promise<JobStatusResponse> {
+    const response = await api.post(`/jobs/${jobId}/cancel`);
+    return response.data;
   }
 };

@@ -107,6 +107,7 @@ export default function DashboardPage() {
                       <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium mr-4
                         ${dataset.status === 'completed' ? 'bg-green-100 text-green-800' : 
                           dataset.status === 'analyzing' ? 'bg-blue-100 text-blue-800' :
+                          dataset.status === 'stopped' || dataset.status === 'cancelled' ? 'bg-amber-100 text-amber-800' :
                           dataset.status === 'uploaded' ? 'bg-slate-100 text-slate-800' :
                           'bg-red-100 text-red-800'}`}>
                         {dataset.status}

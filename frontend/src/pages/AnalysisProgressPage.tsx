@@ -1,15 +1,17 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { jobService } from '../services/jobs';
 import { JobStatusResponse } from '../types/job';
-import { Loader2, CheckCircle2, AlertTriangle, ArrowRight } from 'lucide-react';
+import { Loader2, CheckCircle2, AlertTriangle, ArrowRight, Square } from 'lucide-react';
 import { formatPercent } from '../utils/formatters';
 
 export default function AnalysisProgressPage() {
   const { id } = useParams<{ id: string }>();
   const [job, setJob] = useState<JobStatusResponse | null>(null);
   const [error, setError] = useState('');
-  
+  const [stopping, setStopping] = useState(false);
+  const navigate = useNavigate();
+
   useEffect(() => {
     if (!id) return;
 
@@ -19,9 +21,9 @@ export default function AnalysisProgressPage() {
       try {
         const data = await jobService.getStatus(id);
         setJob(data);
-        
-        // Stop polling if completed or failed
-        if (data.status === 'completed' || data.status === 'failed') {
+
+        // Stop polling if completed, failed, or stopped
+        if (data.status === 'completed' || data.status === 'failed' || data.status === 'stopped' || data.status === 'cancelled') {
           clearInterval(intervalId);
         }
       } catch (err) {
@@ -37,17 +39,43 @@ export default function AnalysisProgressPage() {
     return () => clearInterval(intervalId);
   }, [id]);
 
+  const handleStopAnalysis = async () => {
+    if (!id || stopping) return;
+    setStopping(true);
+    try {
+      const updated = await jobService.stop(id);
+      setJob(updated);
+    } catch (e: any) {
+      setError(e.response?.data?.detail || 'Failed to stop analysis.');
+    } finally {
+      setStopping(false);
+    }
+  };
+
   if (error) return <div className="p-8 text-center text-red-500">{error}</div>;
   if (!job) return <div className="p-8 text-center text-slate-500">Loading job status...</div>;
 
   const isRunning = job.status === 'running' || job.status === 'pending';
   const isCompleted = job.status === 'completed';
+  const isStopped = job.status === 'stopped' || job.status === 'cancelled';
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
-      <div className="text-center mb-8">
-        <h1 className="text-2xl font-bold text-slate-900">Analysis Progress</h1>
-        <p className="text-slate-500 mt-2">Local LLM is analyzing your reviews in the background.</p>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Analysis Progress</h1>
+          <p className="text-slate-500 mt-1">Local LLM is analyzing your reviews in the background.</p>
+        </div>
+        {isRunning && (
+          <button
+            onClick={handleStopAnalysis}
+            disabled={stopping}
+            className="flex items-center px-4 py-2 bg-red-50 text-red-700 border border-red-200 rounded-lg hover:bg-red-100 transition text-sm font-semibold disabled:opacity-50 shadow-sm"
+          >
+            <Square size={16} className="mr-2 fill-current" />
+            {stopping ? 'Stopping...' : 'Stop Analysis'}
+          </button>
+        )}
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8">
@@ -55,16 +83,17 @@ export default function AnalysisProgressPage() {
           <span className="text-sm font-medium text-slate-700">
             {job.status === 'completed' ? 'Analysis Complete' :
              job.status === 'running' ? 'Analyzing...' :
-             job.status === 'pending' ? 'Starting...' : 'Failed'}
+             job.status === 'pending' ? 'Starting...' :
+             isStopped ? 'Analysis Stopped' : 'Failed'}
           </span>
           <span className="text-sm font-medium text-slate-900">{formatPercent(job.progress_percent)}</span>
         </div>
-        
+
         {/* Progress Bar */}
         <div className="w-full bg-slate-100 rounded-full h-4 mb-6 overflow-hidden">
-          <div 
+          <div
             className={`h-4 rounded-full transition-all duration-500 ${
-              isCompleted ? 'bg-green-500' : job.status === 'failed' ? 'bg-red-500' : 'bg-primary-500'
+              isCompleted ? 'bg-green-500' : isStopped ? 'bg-amber-500' : job.status === 'failed' ? 'bg-red-500' : 'bg-primary-500'
             }`}
             style={{ width: `${job.progress_percent}%` }}
           ></div>
@@ -86,13 +115,22 @@ export default function AnalysisProgressPage() {
         </div>
 
         {isRunning && (
-          <div className="flex items-center justify-center text-primary-600 bg-primary-50 p-4 rounded-lg">
-            <Loader2 className="animate-spin mr-3 shrink-0" size={24} />
-            <span className="font-medium">
-              {job.models && job.models.length > 1
-                ? `Each review is being analysed by ${job.models.length} models. This takes longer than a single model — you can leave this page and come back.`
-                : 'Processing reviews with the local LLM. You can leave this page and come back.'}
-            </span>
+          <div className="flex flex-col md:flex-row items-center justify-between text-primary-600 bg-primary-50 p-4 rounded-lg gap-4">
+            <div className="flex items-center">
+              <Loader2 className="animate-spin mr-3 shrink-0" size={24} />
+              <span className="font-medium text-sm">
+                {job.models && job.models.length > 1
+                  ? `Each review is being analysed by ${job.models.length} models.`
+                  : 'Processing reviews with the local LLM. You can leave this page or stop anytime.'}
+              </span>
+            </div>
+            <button
+              onClick={handleStopAnalysis}
+              disabled={stopping}
+              className="px-3 py-1.5 bg-red-600 text-white rounded-md hover:bg-red-700 transition text-xs font-semibold shrink-0 disabled:opacity-50"
+            >
+              {stopping ? 'Stopping...' : 'Stop Analysis'}
+            </button>
           </div>
         )}
 
@@ -162,6 +200,27 @@ export default function AnalysisProgressPage() {
           </div>
         )}
 
+        {isStopped && (
+          <div className="flex flex-col items-center justify-center space-y-4 mt-6">
+            <div className="flex items-start text-amber-800 bg-amber-50 border border-amber-200 p-4 rounded-lg w-full">
+              <AlertTriangle className="mr-3 shrink-0 mt-0.5 text-amber-600" size={20} />
+              <div>
+                <span className="font-semibold block text-base">Analysis Stopped</span>
+                <span className="text-sm mt-1 block">
+                  Analysis was stopped by user. {job.processed} of {job.total} reviews have been analyzed. You can resume anytime from the dataset page.
+                </span>
+              </div>
+            </div>
+
+            <Link
+              to={`/datasets/${job.dataset_id}`}
+              className="flex items-center px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition w-full justify-center font-medium"
+            >
+              Return to Dataset to Resume <ArrowRight className="ml-2" size={18} />
+            </Link>
+          </div>
+        )}
+
         {job.status === 'failed' && (
           <div className="flex flex-col items-center justify-center space-y-4">
             <div className="flex items-start text-red-700 bg-red-50 p-4 rounded-lg w-full">
@@ -171,8 +230,8 @@ export default function AnalysisProgressPage() {
                 <span className="text-sm mt-1 block">{job.error_message || 'Unknown error occurred.'}</span>
               </div>
             </div>
-            
-            <Link 
+
+            <Link
               to={`/datasets/${job.dataset_id}`}
               className="mt-4 flex items-center px-6 py-3 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition w-full justify-center font-medium"
             >

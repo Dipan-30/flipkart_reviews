@@ -133,12 +133,13 @@ def validate_and_parse_csv(
     if len(df) == 0:
         raise ValueError("No valid reviews found after filtering empty rows.")
 
-    # Remove exact duplicate reviews
+    # Remove exact duplicate reviews (considering review text, date, and product_name)
     before_dedup = len(df)
-    df = df.drop_duplicates(subset=["review"])
+    dedup_subset = [c for c in ["review", "date", "product_name"] if c in df.columns]
+    df = df.drop_duplicates(subset=dedup_subset)
     deduped = before_dedup - len(df)
     if deduped > 0:
-        logger.info(f"Removed {deduped} duplicate reviews.")
+        logger.info(f"Removed {deduped} duplicate reviews based on subset {dedup_subset}.")
 
     # Normalize whitespace in review text
     df["review"] = df["review"].apply(normalize_whitespace)
