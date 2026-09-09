@@ -51,8 +51,8 @@ class TrainRequest(BaseModel):
     product_name: str
     order: list[int] = Field(default=[1, 1, 1])
     seasonal_order: list[int] = Field(default=[0, 0, 0, 0])
-    forecast_horizon: int = Field(default=30, ge=1, le=365)
-    test_fraction: float = Field(default=0.2, ge=0.05, le=0.5)
+    forecast_horizon: int = Field(default=7, ge=7, le=90)
+    test_fraction: float = Field(default=0.20, ge=0.20, le=0.30)
 
 
 class ForecastRunSummary(BaseModel):
@@ -60,6 +60,7 @@ class ForecastRunSummary(BaseModel):
     product_name: str
     created_at: str
     has_sentiment: bool = False
+    best_model: str = "SARIMA"
     n_train: int = 0
     n_test: int = 0
     sarima_test_metrics: Optional[ForecastMetrics] = None
@@ -75,6 +76,7 @@ class ForecastRunDetail(BaseModel):
     seasonal_order: list[int]
     forecast_horizon: int
     test_fraction: float
+    best_model: str = "SARIMA"
     n_train: int
     n_test: int
     has_sentiment: bool

@@ -43,16 +43,21 @@ def fit_sarima(
     test: pd.Series,
     order: tuple[int, int, int] = (1, 1, 1),
     seasonal_order: tuple[int, int, int, int] = (0, 0, 0, 0),
-    forecast_horizon: int = 30,
+    forecast_horizon: int = 7,
 ) -> dict:
     """
-    Fit a SARIMA model on train, evaluate on test, generate future forecast.
+    Fit a SARIMA model on train, evaluate on test, then refit on 100% of historical data
+    to generate future forecast.
     """
     SARIMAX = _safe_import_sarimax()
     logger.info(f"Fitting SARIMA{order}x{seasonal_order} on {len(train)} training points")
 
+    train_s = train.reset_index(drop=True)
+    test_s = test.reset_index(drop=True)
+
+    # 1. Evaluation model on training set
     model = SARIMAX(
-        train,
+        train_s,
         order=order,
         seasonal_order=seasonal_order,
         enforce_stationarity=False,
@@ -62,20 +67,28 @@ def fit_sarima(
 
     fitted_values = result.fittedvalues.tolist()
 
-    # In-sample (train) residuals
+    # Train metrics
     train_pred = result.fittedvalues.values.tolist()
-    train_actual = train.values.tolist()
+    train_actual = train_s.values.tolist()
     train_metrics = evaluate_forecast(train_actual, train_pred)
 
-    # Out-of-sample predictions on test set
-    test_pred_obj = result.get_forecast(steps=len(test))
+    # Test metrics (out-of-sample evaluation on test set)
+    test_pred_obj = result.get_forecast(steps=len(test_s))
     test_pred = test_pred_obj.predicted_mean.values.tolist()
-    test_actual = test.values.tolist()
+    test_actual = test_s.values.tolist()
     test_metrics = evaluate_forecast(test_actual, test_pred)
 
-    # Future forecast
-    forecast_obj = result.get_forecast(steps=len(test) + forecast_horizon)
-    future_forecast = forecast_obj.predicted_mean.values[-forecast_horizon:].tolist()
+    # 2. Refit on 100% of historical data (train + test) for the final future forecast
+    full_data = pd.concat([train_s, test_s]).reset_index(drop=True)
+    full_model = SARIMAX(
+        full_data,
+        order=order,
+        seasonal_order=seasonal_order,
+        enforce_stationarity=False,
+        enforce_invertibility=False,
+    )
+    full_result = full_model.fit(disp=False, maxiter=200)
+    future_forecast = full_result.get_forecast(steps=forecast_horizon).predicted_mean.values.tolist()
 
     return {
         "model_name": "SARIMA",
@@ -97,22 +110,28 @@ def fit_sarimax(
     future_exog: Optional[pd.Series] = None,
     order: tuple[int, int, int] = (1, 1, 1),
     seasonal_order: tuple[int, int, int, int] = (0, 0, 0, 0),
-    forecast_horizon: int = 30,
+    forecast_horizon: int = 7,
 ) -> dict:
     """
     Fit SARIMAX using the daily sentiment index as an exogenous regressor.
+    Evaluates on test set, then refits on 100% of historical data for future forecast.
     """
     SARIMAX = _safe_import_sarimax()
     logger.info(
         f"Fitting SARIMAX{order}x{seasonal_order} with sentiment exog on {len(train)} points"
     )
 
-    # Align series
-    exog_train_arr = exog_train.values.reshape(-1, 1)
-    exog_test_arr = exog_test.values.reshape(-1, 1)
+    train_s = train.reset_index(drop=True)
+    test_s = test.reset_index(drop=True)
+    exog_train_s = exog_train.reset_index(drop=True)
+    exog_test_s = exog_test.reset_index(drop=True)
+
+    # Align series for training evaluation
+    exog_train_arr = exog_train_s.values.reshape(-1, 1)
+    exog_test_arr = exog_test_s.values.reshape(-1, 1)
 
     model = SARIMAX(
-        train,
+        train_s,
         exog=exog_train_arr,
         order=order,
         seasonal_order=seasonal_order,
@@ -125,27 +144,38 @@ def fit_sarimax(
 
     # Train metrics
     train_pred = result.fittedvalues.values.tolist()
-    train_actual = train.values.tolist()
+    train_actual = train_s.values.tolist()
     train_metrics = evaluate_forecast(train_actual, train_pred)
 
-    # Test metrics
-    test_pred_obj = result.get_forecast(steps=len(test), exog=exog_test_arr)
+    # Test metrics (out-of-sample evaluation on test set)
+    test_pred_obj = result.get_forecast(steps=len(test_s), exog=exog_test_arr)
     test_pred = test_pred_obj.predicted_mean.values.tolist()
-    test_actual = test.values.tolist()
+    test_actual = test_s.values.tolist()
     test_metrics = evaluate_forecast(test_actual, test_pred)
 
-    # Future forecast — if no future exog provided, repeat mean of training exog
+    # Prepare future exogenous values
     if future_exog is None:
         mean_exog = float(np.mean(exog_train_arr))
         future_exog_arr = np.full((forecast_horizon, 1), mean_exog)
     else:
         future_exog_arr = future_exog.values.reshape(-1, 1)
 
-    future_obj = result.get_forecast(
-        steps=len(test) + forecast_horizon,
-        exog=np.vstack([exog_test_arr, future_exog_arr]),
+    # Refit on 100% of historical data (train + test) for final future forecast
+    full_data = pd.concat([train_s, test_s]).reset_index(drop=True)
+    full_exog = pd.concat([exog_train_s, exog_test_s]).reset_index(drop=True)
+    full_exog_arr = full_exog.values.reshape(-1, 1)
+
+    full_model = SARIMAX(
+        full_data,
+        exog=full_exog_arr,
+        order=order,
+        seasonal_order=seasonal_order,
+        enforce_stationarity=False,
+        enforce_invertibility=False,
     )
-    future_forecast = future_obj.predicted_mean.values[-forecast_horizon:].tolist()
+    full_result = full_model.fit(disp=False, maxiter=200)
+    future_obj = full_result.get_forecast(steps=forecast_horizon, exog=future_exog_arr)
+    future_forecast = future_obj.predicted_mean.values.tolist()
 
     return {
         "model_name": "SARIMAX",

@@ -63,6 +63,26 @@ async def get_products(current_user: dict = Depends(get_current_user)):
     return await svc.get_products_with_both_data(db, current_user.get("user_id") or str(current_user.get("_id")))
 
 
+from bson import ObjectId
+
+
+async def _verify_review_dataset_ownership(db, review_dataset_id: str, user_id: str):
+    if not review_dataset_id or review_dataset_id.lower() == "none":
+        return
+    try:
+        ds = await db.datasets.find_one({"_id": ObjectId(review_dataset_id), "user_id": user_id})
+    except Exception:
+        ds = None
+    if not ds:
+        raise HTTPException(status_code=403, detail="Access denied: review dataset not owned by user.")
+
+
+async def _verify_sales_dataset_ownership(db, sales_dataset_id: str, user_id: str):
+    ds = await db.sales_datasets.find_one({"sales_dataset_id": sales_dataset_id, "user_id": user_id})
+    if not ds:
+        raise HTTPException(status_code=403, detail="Access denied: sales dataset not owned by user.")
+
+
 @router.post("/build-sentiment-index", response_model=list[DailySentimentRecord])
 async def build_sentiment_index(
     body: SentimentBuildRequest,
@@ -70,6 +90,9 @@ async def build_sentiment_index(
 ):
     """Aggregate LLM sentiment scores into a daily index per product."""
     db = get_db()
+    user_id = current_user.get("user_id") or str(current_user.get("_id"))
+    await _verify_review_dataset_ownership(db, body.review_dataset_id, user_id)
+
     records = await build_daily_sentiment_index(
         db, body.review_dataset_id, body.product_name
     )
@@ -93,6 +116,9 @@ async def get_sentiment_index(
 ):
     """Retrieve stored daily sentiment records for a product."""
     db = get_db()
+    user_id = current_user.get("user_id") or str(current_user.get("_id"))
+    await _verify_review_dataset_ownership(db, review_dataset_id, user_id)
+
     records = await get_daily_sentiment(db, review_dataset_id, product_name)
     if not records:
         raise HTTPException(status_code=404, detail="No sentiment index found. Run build-sentiment-index first.")
@@ -109,13 +135,17 @@ async def train_models(
     Returns full run detail including metrics and forecasts.
     """
     db = get_db()
+    user_id = current_user.get("user_id") or str(current_user.get("_id"))
+    await _verify_sales_dataset_ownership(db, body.sales_dataset_id, user_id)
+    await _verify_review_dataset_ownership(db, body.review_dataset_id, user_id)
+
     try:
         run = await svc.run_training(
             db=db,
             sales_dataset_id=body.sales_dataset_id,
             review_dataset_id=body.review_dataset_id,
             product_name=body.product_name,
-            user_id=current_user.get("user_id") or str(current_user.get("_id")),
+            user_id=user_id,
             order=tuple(body.order),
             seasonal_order=tuple(body.seasonal_order),
             forecast_horizon=body.forecast_horizon,
@@ -148,6 +178,7 @@ async def list_runs(current_user: dict = Depends(get_current_user)):
             product_name=doc["product_name"],
             created_at=doc["created_at"],
             has_sentiment=doc.get("has_sentiment", False),
+            best_model=doc.get("best_model", "SARIMA"),
             n_train=doc.get("n_train", 0),
             n_test=doc.get("n_test", 0),
             sarima_test_metrics=sarima_metrics,

@@ -39,6 +39,7 @@ export interface ForecastRunSummary {
   product_name: string;
   created_at: string;
   has_sentiment: boolean;
+  best_model?: string;
   n_train: number;
   n_test: number;
   sarima_test_metrics?: ForecastMetrics;
@@ -54,6 +55,7 @@ export interface ForecastRunDetail {
   seasonal_order: number[];
   forecast_horizon: number;
   test_fraction: number;
+  best_model?: string;
   n_train: number;
   n_test: number;
   has_sentiment: boolean;

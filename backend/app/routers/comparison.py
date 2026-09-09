@@ -45,13 +45,3 @@ async def get_model_comparison(
     )
     return ModelComparisonResponse(**payload)
 
-
-@router.get("/datasets/{dataset_id}/recommendation")
-async def get_recommendation(
-    dataset_id: str,
-    current_user: dict = Depends(get_current_user),
-):
-    """Overall and per-product recommendations for a dataset."""
-    dataset = await _get_owned_dataset(dataset_id, current_user["user_id"])
-    return await comparison_service.get_dataset_recommendation(dataset_id, dataset=dataset)
-

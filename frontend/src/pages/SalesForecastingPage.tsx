@@ -101,8 +101,8 @@ export default function SalesForecastingPage() {
   const [reviewDatasets, setReviewDatasets] = useState<Dataset[]>([]);
   const [selectedReviewDatasetId, setSelectedReviewDatasetId] = useState('');
   const [selectedProduct, setSelectedProduct] = useState('');
-  const [forecastHorizon, setForecastHorizon] = useState(30);
-  const [testFraction, setTestFraction] = useState(0.2);
+  const [forecastHorizon, setForecastHorizon] = useState(7);
+  const [testFraction, setTestFraction] = useState(0.20);
 
   // Step 2 – Build sentiment index
   const [sentimentBuilt, setSentimentBuilt] = useState(false);
@@ -369,7 +369,7 @@ export default function SalesForecastingPage() {
                 Forecast Horizon (days): {forecastHorizon}
               </label>
               <input
-                type="range" min={7} max={365} step={7}
+                type="range" min={7} max={90} step={1}
                 value={forecastHorizon}
                 onChange={e => setForecastHorizon(Number(e.target.value))}
                 className="w-full accent-primary-600"
@@ -381,7 +381,7 @@ export default function SalesForecastingPage() {
                 Test Set Size: {Math.round(testFraction * 100)}%
               </label>
               <input
-                type="range" min={0.05} max={0.5} step={0.05}
+                type="range" min={0.20} max={0.30} step={0.05}
                 value={testFraction}
                 onChange={e => setTestFraction(Number(e.target.value))}
                 className="w-full accent-primary-600"
@@ -550,9 +550,14 @@ export default function SalesForecastingPage() {
 
           {/* Model Comparison Table */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-200">
-              <h3 className="font-semibold text-slate-900">Model Comparison — Test Set Metrics</h3>
-              <p className="text-xs text-slate-500 mt-0.5">Lower is better for all metrics.</p>
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+              <div>
+                <h3 className="font-semibold text-slate-900">Model Comparison — Test Set Metrics</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Lower is better for all metrics.</p>
+              </div>
+              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                Selected Best Model: {activeRun.best_model || 'SARIMA'}
+              </span>
             </div>
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-slate-200">

@@ -23,6 +23,34 @@ from app.forecasting.models import fit_sarima, fit_sarimax
 logger = logging.getLogger(__name__)
 
 
+from bson import ObjectId
+
+
+def sanitize_for_mongo(obj):
+    """
+    Recursively convert NumPy/Pandas scalar types, ndarrays, and ObjectIds to native Python primitives
+    (bool, int, float, list, str) so that BSON encoding in Motor/PyMongo and JSON encoding in FastAPI never fails.
+    """
+    if isinstance(obj, ObjectId):
+        return str(obj)
+    elif isinstance(obj, dict):
+        return {k: sanitize_for_mongo(v) for k, v in obj.items() if k != "_id"}
+    elif isinstance(obj, (list, tuple)):
+        return [sanitize_for_mongo(item) for item in obj]
+    elif isinstance(obj, np.ndarray):
+        return [sanitize_for_mongo(item) for item in obj.tolist()]
+    elif isinstance(obj, (np.bool_, bool)):
+        return bool(obj)
+    elif isinstance(obj, (np.integer, int)):
+        return int(obj)
+    elif isinstance(obj, (np.floating, float)):
+        val = float(obj)
+        return None if (np.isnan(val) or np.isinf(val)) else val
+    elif isinstance(obj, (pd.Timestamp, datetime)):
+        return obj.isoformat()
+    return obj
+
+
 async def upload_sales_dataset(
     db: AsyncIOMotorDatabase,
     content: bytes,
@@ -47,7 +75,7 @@ async def upload_sales_dataset(
         "created_at": now,
     }
 
-    await db.sales_datasets.insert_one({**metadata})
+    await db.sales_datasets.insert_one(sanitize_for_mongo({**metadata}))
 
     # Store individual records
     records = daily.to_dict(orient="records")
@@ -55,7 +83,7 @@ async def upload_sales_dataset(
         rec["sales_dataset_id"] = dataset_id
         rec["user_id"] = user_id
         rec["date"] = rec["date"].strftime("%Y-%m-%d") if hasattr(rec["date"], "strftime") else str(rec["date"])[:10]
-        await db.sales_records.insert_one(rec)
+        await db.sales_records.insert_one(sanitize_for_mongo(rec))
 
     return metadata
 
@@ -173,7 +201,7 @@ async def run_training(
         )
 
     units = df["units_sold"]
-    has_sentiment = "lagged_sentiment" in df.columns and df["lagged_sentiment"].notna().any()
+    has_sentiment = bool("lagged_sentiment" in df.columns and bool(df["lagged_sentiment"].notna().any()))
 
     train_units, test_units = train_test_split_chronological(units, test_fraction)
 
@@ -220,6 +248,18 @@ async def run_training(
         except Exception as exc:
             logger.warning(f"SARIMAX failed, falling back to SARIMA only: {exc}")
 
+    # Determine best model based on out-of-sample test MAE
+    best_model = "SARIMA"
+    if (
+        sarimax_result
+        and sarimax_result.get("test_metrics")
+        and sarima_result.get("test_metrics")
+    ):
+        sx_mae = sarimax_result["test_metrics"].get("mae")
+        s_mae = sarima_result["test_metrics"].get("mae")
+        if sx_mae is not None and s_mae is not None and sx_mae < s_mae:
+            best_model = "SARIMAX"
+
     run_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
 
@@ -242,6 +282,7 @@ async def run_training(
         "seasonal_order": list(effective_seasonal_order),
         "forecast_horizon": forecast_horizon,
         "test_fraction": test_fraction,
+        "best_model": best_model,
         "n_train": len(train_units),
         "n_test": len(test_units),
         "sarima": sarima_result,
@@ -256,9 +297,11 @@ async def run_training(
         "created_at": now,
     }
 
-    await db.forecasting_runs.insert_one({k: v for k, v in run_doc.items() if k != "_id"})
-    logger.info(f"Forecasting run {run_id} saved for product '{product_name}'")
-    return run_doc
+    sanitized_doc = sanitize_for_mongo({k: v for k, v in run_doc.items() if k != "_id"})
+    await db.forecasting_runs.insert_one(sanitized_doc)
+    sanitized_doc.pop("_id", None)
+    logger.info(f"Forecasting run {run_id} saved for product '{product_name}' (best model: {best_model})")
+    return sanitized_doc
 
 
 async def get_runs(db: AsyncIOMotorDatabase, user_id: str) -> list[dict]:
@@ -270,6 +313,7 @@ async def get_runs(db: AsyncIOMotorDatabase, user_id: str) -> list[dict]:
             "product_name": 1,
             "created_at": 1,
             "has_sentiment": 1,
+            "best_model": 1,
             "sarima.test_metrics": 1,
             "sarimax.test_metrics": 1,
             "n_train": 1,
